@@ -5,8 +5,12 @@
 
     # publish to a HuggingFace Space and record the URL for ValueArena
     python scripts/publish_inspect_bundle.py runs/my_run \
-        --output-dir hf/invi-bhagyesh/valuearena-logs \
-        --url https://invi-bhagyesh-valuearena-logs.hf.space
+        --output-dir hf/<org>/<space> \
+        --url https://<org>-<space>.static.hf.space
+
+A static Space is served from the `.static.hf.space` subdomain -- the plain
+`.hf.space` host 404s -- and is created private, so make it public before
+linking it.
 
 The recorded URL lands in <run_dir>/inspect_run.json, which
 scripts/upload_results.py copies into meta.json as `meta.inspect`. ValueArena

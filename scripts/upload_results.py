@@ -366,13 +366,20 @@ def stage_run(name: str, run_dir: Path, staging_dir: Path) -> tuple[dict, list[d
         shutil.copy2(eval_path, dest / "evaluations.jsonl")
 
     git_commit, git_repo = get_git_info(run_dir)
+    # The Inspect log travels with the run, so the viewer can read it straight
+    # from the dataset by URL instead of needing a bundle published elsewhere.
     inspect_info = None
     inspect_info_path = run_dir / "inspect_run.json"
     if inspect_info_path.exists():
         loaded = json.loads(inspect_info_path.read_text(encoding="utf-8"))
-        # A link needs both halves; a bundle that was never published is not one.
-        if loaded.get("bundle_url") and loaded.get("log_file"):
-            inspect_info = loaded
+        log_file = loaded.get("log_file")
+        source = run_dir / "inspect_logs" / log_file if log_file else None
+        if source is not None and source.exists():
+            shutil.copy2(source, dest / log_file)
+            inspect_info = {"log_file": log_file}
+            # Only set when the logs are also published as a standalone bundle.
+            if loaded.get("bundle_url"):
+                inspect_info["bundle_url"] = loaded["bundle_url"]
     meta = build_meta(
         name,
         spec,

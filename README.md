@@ -664,8 +664,12 @@ Runs collected by the Inspect engine can publish a static log viewer and link it
 ```bash
 python scripts/publish_inspect_bundle.py runs/my_run \
     --output-dir hf/<org>/<space-name> \
-    --url https://<org>-<space-name>.hf.space
+    --url https://<org>-<space-name>.static.hf.space
 ```
+
+Note the `.static.hf.space` host: static Spaces are not served from the plain
+`.hf.space` subdomain, which returns 404. New Spaces are also private, and a
+private Space 404s for everyone else, so make it public before linking it.
 
 `bundle_log_dir` uploads to a HuggingFace Space when `--output-dir` starts with `hf/` (Spaces are private until you make them public); any static host supporting HTTP range requests works too. The URL is recorded in `inspect_run.json`, and `upload_results.py` copies it into `meta.json` as `meta.inspect`. ValueArena renders an "Open in Inspect" button only when that block is present, so earlier runs are unaffected.
 
