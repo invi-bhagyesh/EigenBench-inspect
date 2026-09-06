@@ -21,6 +21,7 @@ EigenBench is a black-box framework for quantifying value alignment across langu
   - [Spec Mode: Mixed HF Local + OpenRouter](#spec-mode-mixed-hf-local--openrouter)
   - [Spec Mode: All-to-All Collection](#spec-mode-all-to-all-collection)
   - [Spec Mode: Direct Rating](#spec-mode-direct-rating)
+- [Inspect AI Collection Engine](#inspect-ai-collection-engine-direct-rating)
 - [Bootstrap Resampling](#bootstrap-resampling)
 - [Outputs](#outputs)
 - [Repo Layout](#repo-layout)
@@ -425,6 +426,80 @@ direct mode uses `group_size`, `response_redundancy`, and `sampler_seed`; it
 does not use the pairwise `groups` setting.
 
 These are request counts, not token-cost estimates. A BTD comparison prompt contains two responses and two reflections, whereas a direct-rating prompt contains one of each; direct ratings also default to a smaller 512-token output ceiling. Provider retries can increase actual HTTP requests beyond the logical counts, while checkpoint resumption prevents completed tasks from being repeated.
+
+## Inspect AI Collection Engine (direct rating)
+
+Direct-rating runs can be collected as a native [Inspect AI](https://inspect.aisi.org.uk) eval. The protocol is unchanged — sampling plans, prompts, and rating validation are imported from `pipeline/eval/direct_rating.py`, and the exported output is the same `evaluations.jsonl` — but Inspect replaces the transport: provider clients, concurrency, retries, caching, logs, and the transcript viewer.
+
+```bash
+pip install -r requirements-inspect.txt
+```
+
+### Native workflow
+
+```bash
+# 1. check the plan (spec-driven, makes no API calls)
+python scripts/run.py runs/my_run/spec.py --estimate-calls
+
+# 2. collect (one sample per directed judge->evaluee edge)
+inspect eval inspect_pipeline/eigenbench.py -T spec=runs/my_run/spec.py \
+    --log-dir runs/my_run/inspect_logs
+
+# 3. browse judge reasoning
+inspect view --log-dir runs/my_run/inspect_logs
+
+# 4. resume anything that failed
+inspect eval-retry runs/my_run/inspect_logs/<log>.eval
+
+# 5. export to the legacy contract
+python scripts/export_evaluations.py runs/my_run/inspect_logs \
+    -o runs/my_run/evaluations.jsonl
+
+# 6. aggregation + EigenTrust + upload (collection already done)
+python scripts/run.py runs/my_run/spec.py --collection-enabled false
+```
+
+Step 5 also writes `<run_dir>/inspect_run.json`, recording which log produced the
+run so `scripts/publish_inspect_bundle.py` and the ValueArena uploader can link
+the published viewer.
+
+The task takes the run spec as a task arg (`-T spec=...`) and reads models, dataset, constitution, and sampler settings from it. Every Inspect flag works — `--limit`, `--max-connections`, `--sample-id`, `--log-format=json`, `eval-set`, and so on. No `--model` is needed: judge and evaluee models come from the spec, per sample.
+
+### Wrapper
+
+`scripts/run_inspect.py` is optional sugar that chains exactly those steps (collect, export, then the legacy training/upload stages) in one command:
+
+```bash
+python scripts/run_inspect.py runs/my_run/spec.py --estimate-calls   # plan only
+python scripts/run_inspect.py runs/my_run/spec.py
+```
+
+### Spec additions
+
+Specs are the same as for `scripts/run.py`, plus:
+
+- Model values may use an `inspect:` prefix to address any Inspect provider directly, bypassing OpenRouter: `"inspect:anthropic/claude-sonnet-4-5"`, `"inspect:google/gemini-2.5-pro"`, `"inspect:mockllm/model"` (tests). Bare strings remain OpenRouter ids; `hf_local:` refs remain local vLLM models.
+- An optional `collection.inspect` block, read by `scripts/run_inspect.py` (with `inspect eval`, pass the equivalent CLI flags instead):
+
+| key | default | meaning |
+|---|---|---|
+| `cache` | `true` | Use Inspect's never-expiring generation cache (this is the resume checkpoint) |
+| `log_dir` | `inspect_logs` | Log folder, relative to the run folder |
+| `max_connections` | unset | Pin static per-model concurrency; unset uses Inspect's adaptive concurrency |
+| `max_samples` | unset | Parallel samples; unset tracks the adaptive limit |
+| `retry_on_error` | `0` | Extra sample-level retries on top of the in-solver validation retries |
+| `display` | auto | Progress UI: `rich`, `plain`, `none`, … |
+
+### Behavior notes
+
+- **One sample per edge.** The evaluee response, the judge's reflection, and the judge's rating happen in one sample. A response is generated **once** per (scenario, evaluee) and shared by every judge that rates it — the protocol requires all judges to see identical text — via an in-process pool, so concurrent judges never race to generate their own copy.
+- **Resume**: there is no checkpoint directory. `inspect eval-retry <log>` reuses completed samples and re-runs only failures; with `cache: true`, individual generations also replay from Inspect's content-addressed cache across runs. Cached rating outputs are re-validated before reuse — an invalid one is regenerated under a fresh attempt-scoped cache key, matching the legacy validate-cached-outputs semantics.
+- **Strictness**: identical to the legacy collector — empty, truncated, content-filtered, or malformed completions are retried up to `collection.openrouter.max_attempts` (default 4), and the exporter refuses to write `evaluations.jsonl` if any sample failed (override with `--allow-incomplete`).
+- **Local models**: `hf_local:` refs map to Inspect's `vllm/` provider, which launches `vllm serve` (or attaches to `VLLM_BASE_URL`). LoRA adapters use the provider's `vllm/<base>:<adapter>[@revision]` syntax; adapter repos resolve their base from `adapter_config.json` (or an explicit `base_model_id`), and legacy subfolder adapters are snapshot-downloaded and referenced by local path. Throughput relies on the vLLM server's continuous batching rather than the legacy three-phase offline batching — benchmark on a real GPU run before switching large jobs.
+- **Downstream is unchanged**: the exported `evaluations.jsonl` feeds the same aggregation, EigenTrust, bootstrap, and ValueArena upload code.
+- **Pairwise BTD runs are not supported** by this engine; use `scripts/run.py`.
+
+A committed example lives in `runs/example_inspect/`. `tests/test_inspect_collect.py` runs both paths end to end on scripted `mockllm` models and feeds the export through the legacy trust-matrix analysis.
 
 ## Bootstrap Resampling
 
