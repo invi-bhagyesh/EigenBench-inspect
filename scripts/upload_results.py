@@ -377,9 +377,6 @@ def stage_run(name: str, run_dir: Path, staging_dir: Path) -> tuple[dict, list[d
         if source is not None and source.exists():
             shutil.copy2(source, dest / log_file)
             inspect_info = {"log_file": log_file}
-            # Only set when the logs are also published as a standalone bundle.
-            if loaded.get("bundle_url"):
-                inspect_info["bundle_url"] = loaded["bundle_url"]
     meta = build_meta(
         name,
         spec,

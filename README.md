@@ -509,7 +509,6 @@ Specs are the same as for `scripts/run.py`, plus:
 | `max_samples` | unset | Parallel samples; unset tracks the adaptive limit |
 | `retry_on_error` | `0` | Extra sample-level retries on top of the in-solver validation retries |
 | `display` | auto | Progress UI: `rich`, `plain`, `none`, … |
-| `bundle_url` | unset | Public URL of the published viewer bundle; flows into `meta.inspect` so ValueArena can link each run |
 
 ### Behavior notes
 
@@ -657,23 +656,23 @@ When `upload.enabled=True`, local analysis is skipped. After collection, the eva
 
 The ValueArena Space accepts both pairwise BTD and direct-rating runs. It dispatches on `evaluation.mode`, using scenario-level bootstrap and direct trust-matrix aggregation for direct ratings.
 
-### Linking the Inspect log viewer
+### The Inspect log viewer
 
-Runs collected by the Inspect engine can publish a static log viewer and link it from their ValueArena page:
+Runs collected by the Inspect engine upload their `.eval` log alongside
+`evaluations.jsonl`, and `meta.json` records it as `meta.inspect.log_file`.
+ValueArena serves Inspect's viewer itself and points it at that log:
 
-```bash
-python scripts/publish_inspect_bundle.py runs/my_run \
-    --output-dir hf/<org>/<space-name> \
-    --url https://<org>-<space-name>.static.hf.space
+```text
+/inspect-viewer/?log_file=<dataset URL of the .eval>
 ```
 
-Note the `.static.hf.space` host: static Spaces are not served from the plain
-`.hf.space` subdomain, which returns 404. New Spaces are also private, and a
-private Space 404s for everyone else, so make it public before linking it.
+The viewer reads the log with HTTP range requests, which HuggingFace serves
+cross-origin, so the log never has to be copied anywhere and no separate host is
+involved. Runs collected before the Inspect engine carry no `log_file` and show
+no button.
 
-`bundle_log_dir` uploads to a HuggingFace Space when `--output-dir` starts with `hf/` (Spaces are private until you make them public); any static host supporting HTTP range requests works too. The URL is recorded in `inspect_run.json`, and `upload_results.py` copies it into `meta.json` as `meta.inspect`. ValueArena renders an "Open in Inspect" button only when that block is present, so earlier runs are unaffected.
-
-The viewer app is ~11 MB, so prefer one bundle holding many runs' logs over one bundle per run.
+`scripts/publish_inspect_bundle.py` remains for the unrelated case of wanting a
+self-contained viewer-plus-logs directory to host somewhere else.
 
 ### Manual upload
 

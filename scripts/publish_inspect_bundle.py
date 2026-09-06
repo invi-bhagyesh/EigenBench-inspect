@@ -47,11 +47,6 @@ def main() -> None:
         required=True,
         help="Bundle destination; an 'hf/<org>/<name>' path uploads to a HF Space",
     )
-    parser.add_argument(
-        "--url",
-        default=None,
-        help="Public base URL of the published bundle, recorded for ValueArena",
-    )
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument(
         "--skip-bundle",
@@ -80,13 +75,9 @@ def main() -> None:
         if not logs:
             raise SystemExit(f"no .eval logs in {log_dir} to reference")
         info["log_file"] = logs[-1].name
-    if args.url:
-        info["bundle_url"] = args.url.rstrip("/")
 
     info_path.write_text(json.dumps(info, indent=2) + "\n", encoding="utf-8")
     print(f"Recorded {info_path}: {info}")
-    if not info.get("bundle_url"):
-        print("No --url given yet; ValueArena will not show the Inspect button.")
 
 
 if __name__ == "__main__":

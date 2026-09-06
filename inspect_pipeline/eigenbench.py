@@ -250,7 +250,6 @@ def eigenbench(
                 "scale_max": scale_max,
                 "sampler_mode": sampling["sampler_mode"],
                 "evaluations_path": collection_cfg.get("evaluations_path"),
-                "bundle_url": inspect_cfg.get("bundle_url"),
                 "cached_responses_path": collection_cfg.get("cached_responses_path"),
                 "num_scenarios": len(selected),
             }

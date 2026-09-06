@@ -161,22 +161,14 @@ def responses_from_log(log: str | Path | EvalLog) -> list[dict]:
     return rows
 
 
-def write_inspect_run_info(
-    run_dir: str | Path, log: EvalLog, *, bundle_url: str | None = None
-) -> Path:
-    """Record which log produced a run, so uploads can link it to a viewer.
-
-    ``bundle_url`` is filled in by scripts/publish_inspect_bundle.py once the
-    bundle is actually published; ValueArena needs both halves to show a link.
-    """
+def write_inspect_run_info(run_dir: str | Path, log: EvalLog) -> Path:
+    """Record which log produced a run, so the upload can carry it."""
 
     path = Path(run_dir) / "inspect_run.json"
     info = {}
     if path.exists():
         info = json.loads(path.read_text(encoding="utf-8"))
     info["log_file"] = Path(str(log.location)).name
-    if bundle_url:
-        info["bundle_url"] = str(bundle_url)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(info, indent=2) + "\n", encoding="utf-8")
     return path
@@ -220,7 +212,7 @@ def export_log(
 
     records = records_from_log(log, strict=strict)
     write_evaluations_atomic(target, records)
-    write_inspect_run_info(target.parent, log, bundle_url=meta.get("bundle_url"))
+    write_inspect_run_info(target.parent, log)
 
     cache_target = cached_responses_path or meta.get("cached_responses_path")
     if cache_target:
