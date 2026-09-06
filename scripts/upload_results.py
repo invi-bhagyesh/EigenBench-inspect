@@ -217,6 +217,7 @@ def build_meta(
     *,
     analysis: dict | None = None,
     artifacts: dict | None = None,
+    inspect_info: dict | None = None,
 ) -> dict:
     """Build the meta.json dict from parsed components."""
     mode = evaluation_mode(spec)
@@ -254,6 +255,9 @@ def build_meta(
         "log": log,
         "eigentrust": eigentrust,
     }
+    # Only Inspect-collected runs have a viewer to link to.
+    if inspect_info:
+        meta["inspect"] = inspect_info
     return meta
 
 
@@ -362,6 +366,13 @@ def stage_run(name: str, run_dir: Path, staging_dir: Path) -> tuple[dict, list[d
         shutil.copy2(eval_path, dest / "evaluations.jsonl")
 
     git_commit, git_repo = get_git_info(run_dir)
+    inspect_info = None
+    inspect_info_path = run_dir / "inspect_run.json"
+    if inspect_info_path.exists():
+        loaded = json.loads(inspect_info_path.read_text(encoding="utf-8"))
+        # A link needs both halves; a bundle that was never published is not one.
+        if loaded.get("bundle_url") and loaded.get("log_file"):
+            inspect_info = loaded
     meta = build_meta(
         name,
         spec,
@@ -371,6 +382,7 @@ def stage_run(name: str, run_dir: Path, staging_dir: Path) -> tuple[dict, list[d
         git_repo,
         analysis=analysis_config,
         artifacts={"images": staged_images, "data": staged_data},
+        inspect_info=inspect_info,
     )
     (dest / "meta.json").write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
     return meta, summary_data
