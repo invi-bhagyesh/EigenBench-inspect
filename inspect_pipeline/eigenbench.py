@@ -46,6 +46,24 @@ from inspect_pipeline.phases import (
 DEFAULT_MAX_ATTEMPTS = 4
 
 
+def resolve_spec_ref(spec: str) -> str:
+    """Resolve a relative spec path against the repo root.
+
+    Inspect runs a task file with its own directory as the working directory,
+    so `-T spec=runs/...` would otherwise resolve under inspect_pipeline/.
+    Dotted module refs are passed through untouched.
+    """
+
+    looks_like_path = spec.endswith(".py") or "/" in spec or "\\" in spec
+    if not looks_like_path:
+        return spec
+    path = Path(spec).expanduser()
+    if path.is_absolute() or path.exists():
+        return spec
+    candidate = _REPO_ROOT / path
+    return str(candidate) if candidate.exists() else spec
+
+
 def load_selection(spec: dict, run_dir: Path):
     """Scenario + criteria selection, mirroring scripts/run_collect.py."""
 
@@ -154,7 +172,7 @@ def eigenbench(
         cache: override ``collection.inspect.cache``.
     """
 
-    run_spec, run_dir = load_run_spec(spec)
+    run_spec, run_dir = load_run_spec(resolve_spec_ref(spec))
     if run_spec.get("evaluation", {}).get("mode") != "direct_rating":
         raise ValueError(
             "inspect_pipeline.eigenbench supports evaluation.mode='direct_rating' "

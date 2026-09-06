@@ -28,6 +28,7 @@ EigenBench is a black-box framework for quantifying value alignment across langu
 - [Datasets Used in the Paper](#datasets-used-in-the-paper)
 - [ValueArena](#valuearena)
   - [Auto-upload via Space](#auto-upload-via-space)
+  - [Linking the Inspect log viewer](#linking-the-inspect-log-viewer)
   - [Manual upload](#manual-upload)
 - [Citation](#citation)
 
@@ -38,6 +39,12 @@ python -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
+```
+
+For the [Inspect AI collection engine](#inspect-ai-collection-engine-direct-rating) (direct-rating runs), install its requirements instead — they exclude `vllm` unless you run local models:
+
+```bash
+pip install -r requirements-inspect.txt
 ```
 
 Set API keys in `.env`:
@@ -87,6 +94,15 @@ python scripts/run.py runs/my_run/spec.py
 Collection runs locally, then the evaluations are sent to the Space which handles BTD training, bootstrap, EigenTrust, and upload to [ValueArena](https://valuearena.github.io) in the background.
 
 If you already have `evaluations.jsonl`, set `collection.enabled=False` to skip collection and just train+upload via the Space.
+
+**Option C: Direct-rating runs on Inspect AI**
+
+```bash
+inspect eval inspect_pipeline/eigenbench.py -T spec=runs/my_run/spec.py \
+    --log-dir runs/my_run/inspect_logs
+```
+
+Collection runs as a native Inspect eval — same protocol and same `evaluations.jsonl`, but with Inspect's providers, retries, resume, and log viewer. See [Inspect AI Collection Engine](#inspect-ai-collection-engine-direct-rating).
 
 Mixed-model runs work out of the box — just prefix local model paths with `hf_local:` in your spec. The pipeline auto-detects and batches local models through vLLM while routing API models through OpenRouter.
 
@@ -459,9 +475,13 @@ python scripts/export_evaluations.py runs/my_run/inspect_logs \
 python scripts/run.py runs/my_run/spec.py --collection-enabled false
 ```
 
-Step 5 also writes `<run_dir>/inspect_run.json`, recording which log produced the
-run so `scripts/publish_inspect_bundle.py` and the ValueArena uploader can link
-the published viewer.
+Inspect handles collection only. Step 6 is what turns judgments into scores —
+trust matrix, EigenTrust, Elo, bootstrap, plots — using the same
+`pipeline/train/direct_analysis.py` as the legacy pipeline; `--collection-enabled false`
+just tells the orchestrator not to collect again. Step 5 also writes
+`<run_dir>/inspect_run.json`, recording which log produced the run so
+`scripts/publish_inspect_bundle.py` and the ValueArena uploader can link the
+published viewer.
 
 The task takes the run spec as a task arg (`-T spec=...`) and reads models, dataset, constitution, and sampler settings from it. Every Inspect flag works — `--limit`, `--max-connections`, `--sample-id`, `--log-format=json`, `eval-set`, and so on. No `--model` is needed: judge and evaluee models come from the spec, per sample.
 
@@ -489,6 +509,7 @@ Specs are the same as for `scripts/run.py`, plus:
 | `max_samples` | unset | Parallel samples; unset tracks the adaptive limit |
 | `retry_on_error` | `0` | Extra sample-level retries on top of the in-solver validation retries |
 | `display` | auto | Progress UI: `rich`, `plain`, `none`, … |
+| `bundle_url` | unset | Public URL of the published viewer bundle; flows into `meta.inspect` so ValueArena can link each run |
 
 ### Behavior notes
 
@@ -548,6 +569,8 @@ Per run folder (`runs/<run_name>/`):
   - `analysis_config.json`
   - `bootstrap/` (if enabled)
 - `direct_call_estimate.json` (for direct collection)
+- `inspect_logs/` (Inspect engine), the `.eval` logs — browse with `inspect view --log-dir`
+- `inspect_run.json` (Inspect engine), the log file and published bundle URL for this run
 
 ## Repo Layout
 
@@ -571,11 +594,20 @@ EigenBench/
 │   ├── utils/         # record IO + comparison extraction
 │   ├── config/        # run-spec + dataset/constitution loaders
 │   └── providers/     # model API calls (OpenRouter + vLLM)
+├── inspect_pipeline/  # Inspect AI collection engine (direct rating)
+│   ├── eigenbench.py             # the @task: `inspect eval inspect_pipeline/eigenbench.py`
+│   ├── phases.py                 # solvers: response (pooled) -> reflection -> rating
+│   ├── export.py                 # eval log -> evaluations.jsonl contract
+│   ├── model_mapping.py          # spec model refs -> Inspect provider names
+│   └── collect.py                # programmatic driver used by run_inspect.py
 ├── scripts/
 │   ├── run.py                    # only user entrypoint
 │   ├── run_collect.py            # internal: routes to mixed or OpenRouter-only collection
 │   ├── run_collect_responses.py  # internal: response cache stage
 │   ├── run_train.py              # internal: training stage
+│   ├── run_inspect.py            # Inspect engine: collect + export + train in one
+│   ├── export_evaluations.py     # Inspect engine: eval log -> evaluations.jsonl
+│   ├── publish_inspect_bundle.py # Inspect engine: bundle logs into a static viewer
 │   └── upload_results.py         # manual upload to ValueArena
 ├── notebooks/
 │   ├── mixed_openrouter_local_collection.ipynb  # legacy notebook (now integrated into CLI)
@@ -624,6 +656,20 @@ python scripts/run.py runs/my_run/spec.py
 When `upload.enabled=True`, local analysis is skipped. After collection, the evaluations and spec are sent to the Space, which handles protocol-specific analysis, bootstrap, EigenTrust, and upload to ValueArena in the background.
 
 The ValueArena Space accepts both pairwise BTD and direct-rating runs. It dispatches on `evaluation.mode`, using scenario-level bootstrap and direct trust-matrix aggregation for direct ratings.
+
+### Linking the Inspect log viewer
+
+Runs collected by the Inspect engine can publish a static log viewer and link it from their ValueArena page:
+
+```bash
+python scripts/publish_inspect_bundle.py runs/my_run \
+    --output-dir hf/<org>/<space-name> \
+    --url https://<org>-<space-name>.hf.space
+```
+
+`bundle_log_dir` uploads to a HuggingFace Space when `--output-dir` starts with `hf/` (Spaces are private until you make them public); any static host supporting HTTP range requests works too. The URL is recorded in `inspect_run.json`, and `upload_results.py` copies it into `meta.json` as `meta.inspect`. ValueArena renders an "Open in Inspect" button only when that block is present, so earlier runs are unaffected.
+
+The viewer app is ~11 MB, so prefer one bundle holding many runs' logs over one bundle per run.
 
 ### Manual upload
 
