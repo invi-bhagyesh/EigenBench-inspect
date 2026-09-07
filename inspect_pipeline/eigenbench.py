@@ -22,6 +22,12 @@ if str(_REPO_ROOT) not in sys.path:
 from inspect_ai import Task, task
 from inspect_ai.dataset import MemoryDataset, Sample
 from inspect_ai.model import Model, get_model
+from inspect_ai.viewer import (
+    TaskSamplesColumn,
+    TaskSamplesSort,
+    TaskSamplesView,
+    ViewerConfig,
+)
 
 from pipeline.config import (
     get_criteria_from_spec,
@@ -39,6 +45,8 @@ from pipeline.eval.direct_rating import (
 from inspect_pipeline.model_mapping import to_inspect_model
 from inspect_pipeline.phases import (
     ResponsePool,
+    criterion_key,
+    criterion_label,
     direct_rating_scorer,
     direct_rating_solver,
 )
@@ -115,9 +123,8 @@ def build_edge_samples(assignments: list[dict]) -> list[Sample]:
                 Sample(
                     input=assignment["scenario"],
                     id=(
-                        f"s{s_idx}-j{assignment['judge_idx']}-e{eval_idx}"
-                        f"-r{assignment.get('sampling_round', 0)}"
-                        f"-g{assignment.get('group_index', 0)}"
+                        f"s{s_idx:04d} r{assignment.get('sampling_round', 0)} · "
+                        f"{assignment['judge_nick']} → {eval_nick}"
                     ),
                     metadata={
                         "edge_index": len(samples),
@@ -223,6 +230,36 @@ def eigenbench(
     resolve_model = _model_resolver(spec_models)
     pool = ResponsePool(seed=seed)
 
+    scorer_name = "direct_rating_scorer"
+    samples_view = TaskSamplesView(
+        name="Judgments",
+        columns=[
+            TaskSamplesColumn(id="sampleId"),
+            TaskSamplesColumn(id="answer"),
+            TaskSamplesColumn.score(scorer_name, "mean"),
+            *[
+                TaskSamplesColumn.score(scorer_name, criterion_key(i))
+                for i in range(len(criteria))
+            ],
+            TaskSamplesColumn(id="input", visible=False),
+            TaskSamplesColumn(id="tokens", visible=False),
+        ],
+        # Weakest judgments first: the point of reading these is finding where a
+        # judge broke from the pack, not admiring the middle of the scale.
+        sort=[TaskSamplesSort.score(scorer_name, "mean", dir="asc")],
+        multiline=False,
+        compact_scores=True,
+        color_scales_enabled=True,
+        score_labels={
+            "mean": "Mean",
+            **{criterion_key(i): criterion_label(i, c) for i, c in enumerate(criteria)},
+        },
+        score_color_scales={
+            "mean": "good-high",
+            **{criterion_key(i): "good-high" for i in range(len(criteria))},
+        },
+    )
+
     return Task(
         dataset=MemoryDataset(
             samples=build_edge_samples(assignments), name=f"eigenbench_{run_spec['name']}"
@@ -238,6 +275,7 @@ def eigenbench(
             scale_max=scale_max,
         ),
         scorer=direct_rating_scorer(),
+        viewer=ViewerConfig(task_samples_view=samples_view),
         name=f"eigenbench_{run_spec['name']}",
         display_name=f"EigenBench direct rating — {run_spec['name']}",
         metadata={

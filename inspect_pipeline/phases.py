@@ -257,16 +257,47 @@ def direct_rating_solver(
     return solve
 
 
+def criterion_key(index: int) -> str:
+    """Stable score key for a criterion, ordered for column display."""
+
+    return f"c{index + 1:02d}"
+
+
+def criterion_label(index: int, criterion: str) -> str:
+    """A criterion's text trimmed to something that fits a column header."""
+
+    text = criterion.split(":", 1)[-1].strip()
+    for prefix in ("prefer the response that ", "prefer the response "):
+        if text.lower().startswith(prefix):
+            text = text[len(prefix):]
+            break
+    text = text.strip()
+    if len(text) > 42:
+        text = text[:41].rstrip() + "…"
+    return f"{index + 1}. {text}" if text else f"Criterion {index + 1}"
+
+
 @scorer(metrics=[mean()])
 def direct_rating_scorer():
-    """Informational: mean rating this judge gave on the edge."""
+    """One score per criterion, plus their mean.
+
+    Scoring per criterion rather than as a single number is what lets the
+    viewer lay a judgment out as a row of criterion cells instead of one
+    opaque average.
+    """
 
     async def score(state: TaskState, target: Target) -> Score:
         ratings = state.store.get(STORE_RATINGS) or []
         values = [entry["rating"] for entry in ratings]
+        value: dict[str, float] = {
+            criterion_key(entry["criterion_index"]): entry["rating"] for entry in ratings
+        }
+        value["mean"] = round(sum(values) / len(values), 2) if values else float("nan")
+        md = state.metadata
         return Score(
-            value=sum(values) / len(values) if values else float("nan"),
-            answer=state.store.get(STORE_JUDGMENT_RAW),
+            value=value,
+            answer=f"{md.get('judge_nick')} → {md.get('eval_nick')}",
+            explanation=state.store.get(STORE_JUDGMENT_RAW),
             metadata={"ratings": ratings},
         )
 
