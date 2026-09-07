@@ -41,12 +41,6 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-For the [Inspect AI collection engine](#inspect-ai-collection-engine-direct-rating) (direct-rating runs), install its requirements instead — they exclude `vllm` unless you run local models:
-
-```bash
-pip install -r requirements-inspect.txt
-```
-
 Set API keys in `.env`:
 
 - `OPENROUTER_API_KEY` — required for OpenRouter models
