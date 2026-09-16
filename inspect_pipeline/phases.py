@@ -43,7 +43,9 @@ STORE_JUDGMENT_RAW = "eigenbench:judgment_raw"
 STORE_RATINGS = "eigenbench:ratings"
 
 # The legacy collector treats truncated/filtered completions as retryable.
-_RETRYABLE_STOP_REASONS = {"max_tokens", "model_length", "content_filter"}
+_RETRYABLE_STOP_REASONS = {"max_tokens", "content_filter"}
+# Retrying cannot help: the prompt plus budget exceed the context window.
+_FATAL_STOP_REASONS = {"model_length"}
 
 
 class ResponsePool:
@@ -123,6 +125,13 @@ async def generate_validated(
             cache=_cache_for_attempt(cache_enabled, attempt),
         )
         content = output.completion
+        if output.stop_reason in _FATAL_STOP_REASONS:
+            raise RuntimeError(
+                f"{identity}: ran out of context (stop_reason="
+                f"{output.stop_reason!r}). The prompt plus max_tokens="
+                f"{config.max_tokens} exceed this model's window; lower "
+                "collection.generation budgets."
+            )
         if not isinstance(content, str) or not content.strip():
             last_error = "empty completion"
         elif output.stop_reason in _RETRYABLE_STOP_REASONS:

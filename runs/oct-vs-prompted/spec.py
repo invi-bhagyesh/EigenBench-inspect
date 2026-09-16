@@ -64,10 +64,12 @@ RUN_SPEC = {
         "sampler_mode": "balanced_unique_judge",
         "response_redundancy": 1,
         "sampler_seed": 42,
+        # OLMo-2's context is 4096 tokens in total, so these are the budgets
+        # the oct-olmo runs used rather than the frontier run's.
         "generation": {
-            "response": {"max_tokens": 4096, "temperature": 0.7},
-            "reflection": {"max_tokens": 8192, "temperature": 0.2},
-            "direct_rating": {"max_tokens": 8192, "temperature": 0.0},
+            "response": {"max_tokens": 768, "temperature": 0.7},
+            "reflection": {"max_tokens": 512, "temperature": 0.2},
+            "direct_rating": {"max_tokens": 1024, "temperature": 0.0},
         },
         "openrouter": {"max_attempts": 4},
         "inspect": {"max_connections": 64, "log_dir": "inspect_logs"},
