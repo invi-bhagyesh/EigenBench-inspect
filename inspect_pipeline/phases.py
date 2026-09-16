@@ -151,6 +151,7 @@ def direct_rating_solver(
     criteria: list[str],
     resolve_model: Callable[[str], Model],
     response_pool: ResponsePool,
+    system_prompts: dict[str, str] | None = None,
     generation: dict,
     max_attempts: int,
     cache_enabled: bool,
@@ -158,8 +159,7 @@ def direct_rating_solver(
     scale_max: int = 10,
 ) -> Solver:
     criteria_text = "\n".join(criteria)
-    reflection_system = build_direct_reflection_prompt()
-    rating_system = build_direct_rating_prompt()
+    personas = system_prompts or {}
     response_config = phase_config(generation["response"])
     reflection_config = phase_config(generation["reflection"])
     rating_config = phase_config(generation["direct_rating"])
@@ -173,8 +173,14 @@ def direct_rating_solver(
         eval_nick = md["eval_nick"]
         identity = f"scenario_index={s_idx} judge={judge_nick} evaluee={eval_nick}"
 
+        eval_persona = personas.get(eval_nick)
+        response_system = (
+            f"{eval_persona}\n{RESPONSE_SYSTEM_MESSAGE}"
+            if eval_persona
+            else RESPONSE_SYSTEM_MESSAGE
+        )
         response_messages = [
-            ChatMessageSystem(content=RESPONSE_SYSTEM_MESSAGE),
+            ChatMessageSystem(content=response_system),
             ChatMessageUser(content=scenario),
         ]
 
@@ -197,6 +203,9 @@ def direct_rating_solver(
             response = await response_pool.get((s_idx, eval_nick), make_response)
 
         judge = resolve_model(judge_nick)
+        judge_persona = personas.get(judge_nick, "")
+        reflection_system = build_direct_reflection_prompt(judge_persona)
+        rating_system = build_direct_rating_prompt(judge_persona)
         reflection_messages = [
             ChatMessageSystem(content=reflection_system),
             ChatMessageUser(

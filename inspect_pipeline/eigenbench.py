@@ -149,6 +149,19 @@ def build_edge_samples(assignments: list[dict]) -> list[Sample]:
     return samples
 
 
+def _system_prompts(models: dict[str, object]) -> dict[str, str]:
+    """Persona prompts, for models carrying one in the prompt not the weights."""
+
+    out = {}
+    for nick, value in models.items():
+        if isinstance(value, Model):
+            continue
+        ref = to_inspect_model(value)
+        if ref.system:
+            out[nick] = ref.system
+    return out
+
+
 def _model_resolver(models: dict[str, object]):
     """Resolve nick -> Model lazily so tasks build without provider API keys."""
 
@@ -273,6 +286,7 @@ def _run_context(spec: str, models: dict[str, object] | None, cache: bool | None
         "max_attempts": max_attempts,
         "collection_cfg": collection_cfg,
         "resolve_model": _model_resolver(spec_models),
+        "system_prompts": _system_prompts(spec_models),
         "seed": seed,
         "meta": {
             "run_name": run_spec["name"],
@@ -289,12 +303,27 @@ def _run_context(spec: str, models: dict[str, object] | None, cache: bool | None
     }
 
 
+def local_base_models(models: dict[str, object]) -> set[str]:
+    """The distinct base models needing a vLLM server.
+
+    Adapters on one base share a server, so a spec of LoRAs over a single base
+    holds no more GPU memory than that base alone.
+    """
+
+    bases = set()
+    for value in models.values():
+        if isinstance(value, Model):
+            continue
+        ref = to_inspect_model(value)
+        if ref.is_local:
+            bases.add(ref.name.split(":", 1)[0])
+    return bases
+
+
 def has_local_models(models: dict[str, object]) -> bool:
     """Whether any model needs a vLLM server, and so GPU memory."""
 
-    return any(
-        not isinstance(v, Model) and to_inspect_model(v).is_local for v in models.values()
-    )
+    return bool(local_base_models(models))
 
 
 def sanitize(nick: str) -> str:
@@ -331,6 +360,7 @@ def eigenbench(
         solver=direct_rating_solver(
             criteria=criteria,
             resolve_model=ctx["resolve_model"],
+            system_prompts=ctx["system_prompts"],
             response_pool=ResponsePool(seed=ctx["seed"]),
             generation=ctx["generation"],
             max_attempts=ctx["max_attempts"],

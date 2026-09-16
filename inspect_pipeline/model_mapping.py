@@ -31,6 +31,8 @@ class InspectModelRef:
     name: str
     model_args: dict = field(default_factory=dict)
     is_local: bool = False
+    # Prepended to this model's system prompts, as both evaluee and judge.
+    system: str | None = None
 
 
 def _base_model_from_adapter_config(adapter_config_path: str) -> str:
@@ -88,6 +90,20 @@ def _resolve_hf_local(ref: HFLocalModelRef) -> InspectModelRef:
 
 
 def to_inspect_model(model_ref: object) -> InspectModelRef:
+    # A model carrying a persona in its prompt rather than its weights.
+    if isinstance(model_ref, Mapping) and model_ref.get("provider") == "prompted":
+        inner = model_ref.get("model")
+        system = model_ref.get("system")
+        if not inner or not isinstance(system, str) or not system.strip():
+            raise ValueError("prompted model needs 'model' and a non-empty 'system'")
+        base = to_inspect_model(inner)
+        return InspectModelRef(
+            name=base.name,
+            model_args=base.model_args,
+            is_local=base.is_local,
+            system=system,
+        )
+
     if isinstance(model_ref, str) and model_ref.startswith(INSPECT_PREFIX):
         name = model_ref.removeprefix(INSPECT_PREFIX).strip()
         if not name or "/" not in name:
