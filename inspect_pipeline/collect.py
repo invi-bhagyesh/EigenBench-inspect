@@ -22,7 +22,7 @@ from pipeline.eval.direct_rating import (
 from pipeline.model_refs import is_hf_local_model
 from pipeline.utils import load_records
 
-from .eigenbench import eigenbench, has_local_models, load_selection
+from .eigenbench import eigenbench, load_selection, local_base_models
 from .phased import eigenbench_judge, eigenbench_responses
 from .export import (
     export_log,
@@ -220,7 +220,9 @@ def collect_direct_ratings_inspect(
 
     eval_kw = eval_kwargs(inspect_cfg, log_dir)
     spec_models = models if models is not None else spec["models"]
-    phased = bool(inspect_cfg.get("phased", has_local_models(spec_models)))
+    # One base model fits in memory on its own; several do not. Adapters over a
+    # shared base count once, so a LoRA-only spec runs unphased.
+    phased = bool(inspect_cfg.get("phased", len(local_base_models(spec_models)) > 1))
 
     if phased:
         from .eigenbench import _run_context
