@@ -52,7 +52,7 @@ RUN_SPEC = {
     "dataset": {
         "id": "airisk",
         "start": 100,
-        "count": 500,
+        "count": 400,
         "shuffle": False,
     },
     "constitution": {
