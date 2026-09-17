@@ -414,6 +414,7 @@ def eigenbench_extend(
         solver=direct_rating_solver(
             criteria=criteria,
             resolve_model=ctx["resolve_model"],
+            system_prompts=ctx["system_prompts"],
             response_pool=ResponsePool(),
             generation=ctx["generation"],
             max_attempts=ctx["max_attempts"],

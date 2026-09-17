@@ -86,6 +86,7 @@ def collect_phased_extension(prepared, eval_kwargs):
             dataset=MemoryDataset(samples),
             solver=response_only_solver(
                 resolve_model=ctx["resolve_model"], generation_cfg=ctx["generation"]["response"],
+                system_prompts=ctx["system_prompts"],
                 max_attempts=ctx["max_attempts"], cache_enabled=ctx["cache_enabled"],
             ),
             metadata={"eigenbench_phase": "response", "evaluee": nick},

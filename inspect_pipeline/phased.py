@@ -62,6 +62,7 @@ def eigenbench_responses(
         dataset=MemoryDataset(samples=samples, name=f"responses_{safe}"),
         solver=response_only_solver(
             resolve_model=ctx["resolve_model"],
+            system_prompts=ctx["system_prompts"],
             generation_cfg=ctx["generation"]["response"],
             max_attempts=ctx["max_attempts"],
             cache_enabled=ctx["cache_enabled"],
@@ -94,6 +95,7 @@ def eigenbench_judge(
         solver=direct_rating_solver(
             criteria=criteria,
             resolve_model=ctx["resolve_model"],
+            system_prompts=ctx["system_prompts"],
             response_pool=ResponsePool(),
             generation=ctx["generation"],
             max_attempts=ctx["max_attempts"],

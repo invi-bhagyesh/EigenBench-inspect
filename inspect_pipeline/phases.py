@@ -318,18 +318,23 @@ def response_only_solver(
     *,
     resolve_model: Callable[[str], Model],
     generation_cfg: dict,
+    system_prompts: dict[str, str] | None = None,
     max_attempts: int,
     cache_enabled: bool,
 ) -> Solver:
     """Generate one evaluee response per sample, and nothing else."""
+
+    personas = system_prompts or {}
 
     async def solve(state: TaskState, generate: Generate) -> TaskState:
         md = state.metadata
         s_idx = int(md["scenario_index"])
         eval_nick = md["eval_nick"]
         config = phase_config(generation_cfg, eval_nick)
+        persona = personas.get(eval_nick)
+        system = f"{persona}\n{RESPONSE_SYSTEM_MESSAGE}" if persona else RESPONSE_SYSTEM_MESSAGE
         messages = [
-            ChatMessageSystem(content=RESPONSE_SYSTEM_MESSAGE),
+            ChatMessageSystem(content=system),
             ChatMessageUser(content=md["scenario"]),
         ]
         output = await generate_validated(
@@ -349,7 +354,7 @@ def response_only_solver(
     return solve
 
 
-@scorer(metrics=[mean()])
+@scorer(metrics={"*": [mean()]})
 def direct_rating_scorer():
     """One score per criterion, plus their mean.
 
