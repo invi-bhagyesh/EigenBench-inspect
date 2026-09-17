@@ -140,7 +140,7 @@ def run_direct_bootstrap(
     return {"summary": summary, "output_dir": str(output_dir)}
 
 
-def validate_analysis_coverage(records, models, selected_scenarios, collection_cfg, include_self):
+def validate_analysis_coverage(records, models, selected_scenarios, collection_cfg, include_self, *, allow_missing=False):
     from pipeline.eval.direct_rating import build_direct_assignments, resolve_direct_sampling_settings
 
     if selected_scenarios is None:
@@ -164,7 +164,9 @@ def validate_analysis_coverage(records, models, selected_scenarios, collection_c
         (int(r["scenario_index"]), int(r["judge"]["index"]), int(r["evaluee"]["index"]))
         for r in records if r.get("record_type") == "direct_rating"
     )
-    if expected != observed:
+    missing = sum((expected - observed).values())
+    unexpected = sum((observed - expected).values())
+    if unexpected or (missing and not allow_missing):
         raise ValueError(
             "Direct-rating coverage failed: "
             f"{sum((expected - observed).values())} missing and "
@@ -188,14 +190,16 @@ def run_direct_analysis(
     collection_cfg: dict | None = None,
     selected_scenarios: list[tuple[int, str]] | None = None,
     verbose: bool = False,
+    allow_missing: bool = False,
 ) -> dict:
     direct_cfg = evaluation_cfg.get("direct_rating", {})
     collection_cfg = collection_cfg or {}
     sampler_mode = validate_analysis_coverage(
         records, models, selected_scenarios, collection_cfg,
         bool(direct_cfg.get("include_self", True)),
+        allow_missing=allow_missing,
     )
-    allow_sparse = sampler_mode != "all_to_all"
+    allow_sparse = allow_missing or sampler_mode != "all_to_all"
     labels = list(models)
     result = build_direct_trust(
         records,
@@ -272,6 +276,8 @@ def run_direct_analysis(
         "scale_min": int(direct_cfg.get("scale_min", 1)),
         "scale_max": int(direct_cfg.get("scale_max", 10)),
     }
+    log["allow_missing_judgments"] = allow_missing
+    log["score_population"] = "observed_judgments" if allow_missing else "planned_judgments"
     log["observed_edge_coverage"] = (
         log["observed_directed_edges"] / log["eligible_directed_edges"]
         if log["eligible_directed_edges"]
