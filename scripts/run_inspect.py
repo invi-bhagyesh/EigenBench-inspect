@@ -100,16 +100,6 @@ if __name__ == "__main__":
 
         print(pprint.pformat(estimate_calls(args.spec), sort_dicts=False))
     else:
-        if os.environ.get("EIGENBENCH_CONSOLE_LOG_ACTIVE") != "1":
-            from console_log import run_logged
-
-            _, run_dir = load_run_spec(args.spec)
-            child_env = dict(os.environ, EIGENBENCH_CONSOLE_LOG_ACTIVE="1")
-            raise SystemExit(run_logged(
-                [sys.executable, "-u", str(Path(__file__).resolve()), *sys.argv[1:]],
-                Path(run_dir) / "console.log",
-                env=child_env,
-            ))
         override = None
         if args.collection_enabled is not None:
             override = args.collection_enabled == "true"
