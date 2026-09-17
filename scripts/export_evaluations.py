@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT) not in sys.path:
@@ -22,14 +23,24 @@ from inspect_ai.log import list_eval_logs  # noqa: E402
 from inspect_pipeline.export import export_log  # noqa: E402
 
 
+def _local_log_path(log_ref: str) -> str:
+    """Inspect may return local log names as file:// URLs."""
+    if log_ref.startswith("file:"):
+        url = urlsplit(log_ref)
+        if url.netloc not in ("", "localhost"):
+            raise ValueError(f"Non-local file URL is not supported: {url.netloc}")
+        return unquote(url.path)
+    return log_ref
+
+
 def resolve_log(log_ref: str) -> str:
-    path = Path(log_ref)
+    path = Path(_local_log_path(log_ref))
     if path.is_dir():
         logs = list_eval_logs(str(path))
         if not logs:
             raise SystemExit(f"no eval logs found in {path}")
         newest = max(logs, key=lambda info: info.mtime or 0)
-        return newest.name
+        return _local_log_path(newest.name)
     return str(path)
 
 

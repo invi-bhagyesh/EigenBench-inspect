@@ -18,7 +18,7 @@ def test_saved_log_scores_successes_and_stages_errors(run_dir, monkeypatch):
     info = json.loads((root/'inspect_run.json').read_text())
     log = read_eval_log(str(root/'inspect_logs'/info['log_file']))
     log.samples[0].error = EvalError(message='reflection stopped at max_tokens', traceback='test', traceback_ansi='test')
-    saved = root/'failed.eval'
+    saved = root/'inspect_logs'/'failed.eval'
     write_eval_log(log, saved)
     (root/'evaluations.jsonl').unlink()
     # Use serializable references for upload metadata; no inference is called on continuation.
@@ -34,7 +34,7 @@ def test_saved_log_scores_successes_and_stages_errors(run_dir, monkeypatch):
         report = json.loads((root/'staging'/'runs'/name/'collection_report.json').read_text())
         staged.update(meta=meta, summary=summary, report=report)
     monkeypatch.setattr(upload_results, 'upload_run', upload)
-    continue_from_log(str(path), str(saved), allow_missing=True, upload=True)
+    continue_from_log(str(path), str(root/"inspect_logs"), allow_missing=True, upload=True)
     assert len(staged['summary']) == 3
     assert staged['report']['failed_samples'] == 1
     assert staged['report']['exported_samples'] == len(records)-1
@@ -47,3 +47,20 @@ def test_saved_log_scores_successes_and_stages_errors(run_dir, monkeypatch):
     bad=[dict(records[0],scenario='different question')]
     with pytest.raises(ValueError, match='scenario text'):
         validate_analysis_coverage(bad,spec['models'],selected,spec['collection'],True,allow_missing=True)
+
+
+@pytest.mark.parametrize("as_uri", [False, True])
+def test_resolve_log_normalizes_file_urls(tmp_path, monkeypatch, as_uri):
+    from types import SimpleNamespace
+    from scripts import export_evaluations
+    folder = tmp_path / 'logs with spaces'
+    folder.mkdir()
+    newest = folder / 'newest log.eval'
+    newest.touch()
+    monkeypatch.setattr(export_evaluations, 'list_eval_logs', lambda _: [
+        SimpleNamespace(name=(folder/'older.eval').as_uri(), mtime=1),
+        SimpleNamespace(name=newest.as_uri(), mtime=2),
+    ])
+    reference = folder.as_uri() if as_uri else str(folder)
+    assert export_evaluations.resolve_log(reference) == str(newest)
+    assert export_evaluations.resolve_log(newest.as_uri()) == str(newest)
