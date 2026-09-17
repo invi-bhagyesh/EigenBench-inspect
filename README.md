@@ -764,3 +764,25 @@ python3 scripts/upload_results.py --batch-dir runs/my_batch/ --name "my-batch" -
       url={https://arxiv.org/abs/2509.01938},
 }
 ```
+
+
+Direct-rating audit safeguards: analysis now checks every planned judge/evaluee
+assignment against the selected dataset before writing rankings. Missing,
+extra, or duplicate judgments fail even for sparse samplers; these samplers
+require a fixed seed for verification. Programmatic `run_direct_analysis`
+callers must pass `selected_scenarios` as `(index, text)` pairs.
+
+Set `"dataset": {"id": "airisk", "start": 0, "count": 400}` in the run spec.
+The built-in loader downloads a pinned AIRiskDilemmas snapshot on first use,
+reuses the Hugging Face cache offline afterward, and removes paired action rows
+and repeated question text before selection. No notebook setup is needed;
+`count` means unique questions. The built-in ID does not read the old
+`data/scenarios/airiskdilemmas.json`. Explicit dataset paths still read their
+supplied files; `python scripts/prepare_airiskdilemmas.py` optionally writes a
+prepared JSON for those specs. Raw action rows and duplicate scenario text in
+explicit files are rejected. Generation
+phase `per_model` overrides use run-spec model nicknames. Inspect generation
+caches use a new namespace with the requested model identity captured before
+provider initialization. Previously contaminated logs, response JSON caches,
+and evaluations still require a fresh collection in a new output directory;
+retrying an old log does not repair stored responses.

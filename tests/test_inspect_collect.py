@@ -260,6 +260,7 @@ def test_programmatic_run_and_analysis(run_dir):
 
     run_direct_analysis(
         records=records,
+        selected_scenarios=[(i, f"Scenario number {i}: what do you do?") for i in range(SCENARIO_COUNT)],
         models={nick: f"mock/{nick}" for nick in NICKS},
         num_criteria=NUM_CRITERIA,
         evaluation_cfg={"mode": "direct_rating", "direct_rating": {"include_self": True}},
@@ -544,3 +545,161 @@ RUN_SPEC = {{
     for r in new:
         assert r["judge response"], "a comparison must record a verdict"
         assert r["eval1 response"] and r["eval2 response"]
+
+
+"""Regression checks for the OLMo collection audit."""
+import asyncio
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from inspect_pipeline.eigenbench import _model_resolver
+from inspect_pipeline.phases import generate_validated, phase_config
+from pipeline.config.datasets import _normalize_scenarios, select_scenarios
+from pipeline.eval.direct_rating import resolve_direct_generation_settings, build_direct_assignments
+from pipeline.train.direct_analysis import validate_analysis_coverage
+
+
+def test_override_reaches_generate_config():
+    settings = resolve_direct_generation_settings({"generation": {
+        "reflection": {"max_tokens": 512, "per_model": {"api": {"max_tokens": 2048}}}
+    }})
+    assert phase_config(settings["reflection"], "api").max_tokens == 2048
+    assert phase_config(settings["reflection"], "local").max_tokens == 512
+    with pytest.raises(ValueError, match="invalid generation"):
+        resolve_direct_generation_settings({"generation": {
+            "reflection": {"per_model": {"api": {"max_tokens": 0}}}
+        }})
+
+
+def test_cache_scopes_survive_provider_name_mutation(monkeypatch):
+    import importlib
+    module = importlib.import_module("inspect_pipeline.eigenbench")
+    scopes = {}
+
+    class FakeModel:
+        def __init__(self, name):
+            self.name = name
+
+        def __str__(self):
+            return self.name
+
+        async def generate(self, **kwargs):
+            scopes.setdefault(id(self), []).append(kwargs["cache"].scopes)
+            self.name = "vllm/shared-base"
+            return SimpleNamespace(completion="valid", stop_reason="stop")
+
+    monkeypatch.setattr(module, "get_model", lambda name, **kw: FakeModel(name))
+    resolve = _model_resolver({"a": "inspect:vllm/base:adapter-a", "b": "inspect:vllm/base:adapter-b", "base": "inspect:vllm/base"})
+
+    async def run():
+        for _ in range(3):
+            for nick in ("a", "b", "base"):
+                await generate_validated(resolve(nick), [], config=phase_config({"max_tokens": 10, "temperature": 0}), max_attempts=1, cache_enabled=True, validator=None, identity=nick)
+
+    asyncio.run(run())
+    assert len({v[0]["model_identity"] for v in scopes.values()}) == 3
+    assert all(v[0] == v[1] == v[2] for v in scopes.values())
+    assert all(v[0]["eigenbench_cache_version"] == "2" for v in scopes.values())
+
+
+def test_raw_and_duplicate_scenarios_rejected():
+    with pytest.raises(ValueError, match="prepare_airiskdilemmas"):
+        _normalize_scenarios([{"dilemma": "q"}, {"dilemma": "q"}])
+    with pytest.raises(ValueError, match="Duplicate"):
+        select_scenarios(["q", "q"], count=1)
+
+
+def test_sparse_coverage_requires_all_planned_edges():
+    models = {"a": "a", "b": "b", "c": "c"}
+    selected = [(0, "first"), (1, "second")]
+    config = {"sampler_mode": "balanced_unique_judge", "sampler_seed": 42}
+    assignments = build_direct_assignments(selected, models, **config)
+    records = [dict(record_type="direct_rating", scenario_index=a["scenario_index"], scenario=a["scenario"], judge={"index": a["judge_idx"]}, evaluee={"index": e}) for a in assignments for e in a["eval_idxs"]]
+    validate_analysis_coverage(records, models, selected, config, True)
+    for incomplete in (records[:-1], [r for r in records if r["scenario_index"] == 0], records + records[:1]):
+        with pytest.raises(ValueError, match="coverage failed"):
+            validate_analysis_coverage(incomplete, models, selected, config, True)
+    with pytest.raises(ValueError, match="planned selected_scenarios"):
+        validate_analysis_coverage(records, models, None, config, True)
+
+
+def test_airisk_id_downloads_once_and_selects_unique_questions(tmp_path, monkeypatch):
+    import huggingface_hub
+    from huggingface_hub.errors import LocalEntryNotFoundError
+    from pipeline.config import datasets as loaders
+    from pipeline.config.airisk import DATASET_ID, DATASET_REVISION
+    from scripts import prepare_airiskdilemmas
+
+    source = tmp_path / "model_eval.jsonl"
+    # One question appears in two separate action pairs as well.
+    rows = [{"dilemma": q, "action": action} for q in ("A", "B", "A", "C") for action in ("yes", "no")]
+    source.write_text("\n".join(json.dumps(row) for row in rows))
+    cached = False
+    calls = []
+
+    def download(**kwargs):
+        nonlocal cached
+        calls.append(kwargs)
+        assert kwargs["repo_id"] == DATASET_ID
+        assert kwargs["revision"] == DATASET_REVISION
+        assert kwargs["filename"] == "model_eval.jsonl"
+        assert kwargs["repo_type"] == "dataset"
+        if kwargs.get("local_files_only") and not cached:
+            raise LocalEntryNotFoundError("not cached")
+        cached = True
+        return str(source)
+
+    monkeypatch.setattr(huggingface_hub, "hf_hub_download", download)
+    monkeypatch.setattr(loaders, "_REPO_ROOT", tmp_path)
+    legacy = tmp_path / "data/scenarios/airiskdilemmas.json"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text(json.dumps(rows))
+    scenarios = loaders.load_dataset_scenarios_from_spec({"id": "airisk", "start": 1, "count": 2})
+    assert scenarios == ["A", "B", "C"]
+    assert loaders.select_scenarios(scenarios, start=1, count=2) == [(1, "B"), (2, "C")]
+    assert loaders.load_dataset_scenarios_from_spec("airisk") == scenarios
+    assert [call.get("local_files_only", False) for call in calls] == [True, False, True]
+    assert json.loads(legacy.read_text()) == rows
+
+    # The optional CLI uses exactly the same preparation as the automatic ID.
+    output = tmp_path / "prepared.json"
+    monkeypatch.setattr(sys, "argv", ["prepare_airiskdilemmas.py", "--output", str(output)])
+    prepare_airiskdilemmas.main()
+    assert json.loads(output.read_text()) == scenarios
+    assert calls[-1]["local_files_only"] is True
+
+
+@pytest.mark.parametrize("rows, message", [
+    ([{"dilemma": "A"}], "unpaired"),
+    ([{"dilemma": "A"}, {"dilemma": "B"}], "different dilemmas"),
+    ([{"dilemma": ""}, {"dilemma": ""}], "empty"),
+])
+def test_airisk_rejects_malformed_action_pairs(rows, message):
+    from pipeline.config.airisk import paired_dilemmas
+
+    with pytest.raises(ValueError, match=message):
+        paired_dilemmas(rows)
+
+
+def test_airisk_does_not_redownload_malformed_cached_data(tmp_path, monkeypatch):
+    import huggingface_hub
+    from pipeline.config.airisk import load_airisk_scenarios
+
+    source = tmp_path / "model_eval.jsonl"
+    source.write_text('{"dilemma": "unpaired"}\n')
+    calls = []
+
+    def download(**kwargs):
+        calls.append(kwargs)
+        return str(source)
+
+    monkeypatch.setattr(huggingface_hub, "hf_hub_download", download)
+    with pytest.raises(ValueError, match="unpaired"):
+        load_airisk_scenarios()
+    assert len(calls) == 1
+    assert calls[0]["local_files_only"] is True

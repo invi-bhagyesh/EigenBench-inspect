@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 from pathlib import Path
 import random
 
@@ -139,6 +140,43 @@ def run_direct_bootstrap(
     return {"summary": summary, "output_dir": str(output_dir)}
 
 
+def validate_analysis_coverage(records, models, selected_scenarios, collection_cfg, include_self):
+    from pipeline.eval.direct_rating import build_direct_assignments, resolve_direct_sampling_settings
+
+    if selected_scenarios is None:
+        raise ValueError("Analysis requires the planned selected_scenarios to verify coverage")
+    texts = [text for _, text in selected_scenarios]
+    if len(set(texts)) != len(texts):
+        raise ValueError("Duplicate planned scenario text; refusing scenario bootstrap")
+    sampling = resolve_direct_sampling_settings(
+        collection_cfg, num_models=len(models), include_self=include_self
+    )
+    if sampling["sampler_mode"] != "all_to_all" and sampling["sampler_seed"] is None:
+        raise ValueError("Coverage verification requires a fixed sampler_seed")
+    assignments = build_direct_assignments(
+        selected_scenarios, models, include_self=include_self, **sampling
+    )
+    expected = Counter(
+        (int(a["scenario_index"]), int(a["judge_idx"]), int(e))
+        for a in assignments for e in a["eval_idxs"]
+    )
+    observed = Counter(
+        (int(r["scenario_index"]), int(r["judge"]["index"]), int(r["evaluee"]["index"]))
+        for r in records if r.get("record_type") == "direct_rating"
+    )
+    if expected != observed:
+        raise ValueError(
+            "Direct-rating coverage failed: "
+            f"{sum((expected - observed).values())} missing and "
+            f"{sum((observed - expected).values())} unexpected/duplicate judgments"
+        )
+    scenario_map = dict(selected_scenarios)
+    for record in records:
+        if record.get("record_type") == "direct_rating" and record.get("scenario") != scenario_map[record["scenario_index"]]:
+            raise ValueError("Record scenario text does not match the planned dataset")
+    return sampling["sampler_mode"]
+
+
 def run_direct_analysis(
     *,
     records: list[dict],
@@ -148,11 +186,15 @@ def run_direct_analysis(
     training_cfg: dict,
     output_root: str | Path,
     collection_cfg: dict | None = None,
+    selected_scenarios: list[tuple[int, str]] | None = None,
     verbose: bool = False,
 ) -> dict:
     direct_cfg = evaluation_cfg.get("direct_rating", {})
     collection_cfg = collection_cfg or {}
-    sampler_mode = str(collection_cfg.get("sampler_mode", "all_to_all")).strip().lower()
+    sampler_mode = validate_analysis_coverage(
+        records, models, selected_scenarios, collection_cfg,
+        bool(direct_cfg.get("include_self", True)),
+    )
     allow_sparse = sampler_mode != "all_to_all"
     labels = list(models)
     result = build_direct_trust(

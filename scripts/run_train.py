@@ -77,10 +77,19 @@ def main(spec_ref: str):
     if evaluation_cfg.get("mode", "pairwise_btd") == "direct_rating":
         from pipeline.train.direct_analysis import run_direct_analysis
 
+        from pipeline.config import load_dataset_scenarios_from_spec, select_scenarios
+
+        ds = _spec["dataset"]
+        selected = select_scenarios(
+            load_dataset_scenarios_from_spec(ds, run_dir=run_dir),
+            start=int(ds.get("start", 0)), count=ds.get("count"),
+            shuffle=bool(ds.get("shuffle", False)), shuffle_seed=ds.get("shuffle_seed"),
+        )
         print("Direct-rating mode: skipping BT/BTD fitting and aggregating ratings directly.")
         out_root = _resolve_output_root(evaluations_path, train_cfg)
         run_direct_analysis(
             records=data,
+            selected_scenarios=selected,
             models=_spec.get("models", {}),
             num_criteria=num_criteria,
             evaluation_cfg=evaluation_cfg,

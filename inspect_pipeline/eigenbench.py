@@ -11,6 +11,8 @@ resulting log to the legacy ``evaluations.jsonl`` with
 from __future__ import annotations
 
 import sys
+import hashlib
+import json
 import re
 from pathlib import Path
 
@@ -177,6 +179,13 @@ def _model_resolver(models: dict[str, object]):
         if model is None:
             ref = refs[nick]
             model = ref if isinstance(ref, Model) else get_model(ref.name, **ref.model_args)
+            # Capture the requested identity before provider lazy initialization.
+            identity = {"nick": nick, "name": str(model)} if isinstance(ref, Model) else {
+                "nick": nick, "name": ref.name, "args": ref.model_args,
+            }
+            model._eigenbench_cache_identity = hashlib.sha256(
+                json.dumps(identity, sort_keys=True, default=str).encode()
+            ).hexdigest()
             cache[nick] = model
         return model
 

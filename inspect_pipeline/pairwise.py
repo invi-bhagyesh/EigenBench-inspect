@@ -64,10 +64,6 @@ def pairwise_solver(
     criteria_text = "\n".join(criteria)
     reflection_system = build_reflection_prompt()
     comparison_system = build_comparison_prompt(allow_ties=allow_ties)
-    response_config = phase_config(generation["response"])
-    reflection_config = phase_config(generation["reflection"])
-    # The comparison reuses the rating budget.
-    comparison_config = phase_config(generation["direct_rating"])
 
     async def solve(state: TaskState, generate: Generate) -> TaskState:
         md = state.metadata
@@ -83,7 +79,7 @@ def pairwise_solver(
             ]
             out = await generate_validated(
                 resolve_model(nick), messages,
-                config=response_config, max_attempts=max_attempts,
+                config=phase_config(generation["response"], nick), max_attempts=max_attempts,
                 cache_enabled=cache_enabled, validator=None,
                 identity=f"response scenario_index={s_idx} evaluee={nick}",
             )
@@ -99,7 +95,7 @@ def pairwise_solver(
                 ),
             ]
             out = await generate_validated(
-                judge, messages, config=reflection_config,
+                judge, messages, config=phase_config(generation["reflection"], md["judge_nick"]),
                 max_attempts=max_attempts, cache_enabled=cache_enabled, validator=None,
                 identity=f"reflection scenario_index={s_idx} "
                          f"judge={md['judge_nick']} evaluee={nick}",
@@ -118,7 +114,7 @@ def pairwise_solver(
             ),
         ]
         verdict = await generate_validated(
-            judge, messages, config=comparison_config,
+            judge, messages, config=phase_config(generation["direct_rating"], md["judge_nick"]),
             max_attempts=max_attempts, cache_enabled=cache_enabled,
             # Accepts a contiguous prefix, as the legacy collector does.
             validator=validate_partial_criteria_response,
