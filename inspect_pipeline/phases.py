@@ -96,12 +96,16 @@ class ResponsePool:
         return value
 
 
-def _cache_for_attempt(cache_enabled: bool, attempt: int, model_identity: str = "") -> bool | CachePolicy:
+def _cache_for_attempt(cache_enabled: bool, attempt: int, model_identity: str) -> bool | CachePolicy:
     if not cache_enabled:
         return False
     # Never-expiring, attempt-scoped: reruns reuse valid outputs (checkpoint
     # semantics) while validation retries get a fresh key.
-    return CachePolicy(expiry=None, scopes={"attempt": str(attempt), "eigenbench_cache_version": "2", "model_identity": model_identity})
+    return CachePolicy(expiry=None, scopes={
+        "attempt": str(attempt),
+        "eigenbench_cache_version": "2",
+        "model_identity": model_identity,
+    })
 
 
 async def generate_validated(

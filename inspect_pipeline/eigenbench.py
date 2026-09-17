@@ -164,7 +164,7 @@ def _system_prompts(models: dict[str, object]) -> dict[str, str]:
     return out
 
 
-def _model_resolver(models: dict[str, object]):
+def _model_resolver(models: dict[str, object], *, memoize: bool = True):
     """Resolve nick -> Model lazily so tasks build without provider API keys."""
 
     # Validate the mapping eagerly; only client creation is deferred.
@@ -178,10 +178,11 @@ def _model_resolver(models: dict[str, object]):
         model = cache.get(nick)
         if model is None:
             ref = refs[nick]
-            model = ref if isinstance(ref, Model) else get_model(ref.name, **ref.model_args)
-            # Capture the requested identity before provider lazy initialization.
-            identity = {"nick": nick, "name": str(model)} if isinstance(ref, Model) else {
-                "nick": nick, "name": ref.name, "args": ref.model_args,
+            model = ref if isinstance(ref, Model) else get_model(ref.name, memoize=memoize, **ref.model_args)
+            # Provider initialization can replace the adapter name with its base.
+            # Capture the requested identity before any generation takes place.
+            identity = {"name": str(model), "nick": nick} if isinstance(ref, Model) else {
+                "name": ref.name, "args": ref.model_args,
             }
             model._eigenbench_cache_identity = hashlib.sha256(
                 json.dumps(identity, sort_keys=True, default=str).encode()
@@ -231,7 +232,8 @@ def _samples_view(criteria: list[str]) -> TaskSamplesView:
     )
 
 
-def _run_context(spec: str, models: dict[str, object] | None, cache: bool | None = None) -> dict:
+def _run_context(spec: str, models: dict[str, object] | None, cache: bool | None = None,
+                 *, build_assignments: bool = True) -> dict:
     """Everything the three task entrypoints need from a run spec."""
 
     run_spec, run_dir = load_run_spec(resolve_spec_ref(spec))
@@ -253,7 +255,7 @@ def _run_context(spec: str, models: dict[str, object] | None, cache: bool | None
 
     selected, criteria = load_selection(run_spec, run_dir)
     generation = resolve_direct_generation_settings(collection_cfg)
-    if is_direct:
+    if is_direct and build_assignments:
         sampling = resolve_direct_sampling_settings(
             collection_cfg, num_models=len(spec_models), include_self=include_self
         )
