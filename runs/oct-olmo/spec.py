@@ -95,4 +95,12 @@ RUN_SPEC = {
             "save_trust_matrices": False,
         },
     },
+    "upload": {
+        "enabled": True,
+        "backend": "valuearena_space",
+        "name": "OLMo OCT - Humor",
+        "group": "OLMo OCT",
+        "note": "Humor constitution; 200 unique AIRisk scenarios (100–299).",
+        # Read authentication from the SPACE_SECRET environment variable.
+    },
 }
