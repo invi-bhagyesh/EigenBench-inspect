@@ -942,6 +942,7 @@ def _run_local_tasks_for_phase(
             base_info["base_model_path"],
             enable_lora=has_loras,
             lora_count=len(base_info.get("loras", {})),
+            lora_paths=base_info.get("loras", {}),
         ) as llm:
             lora_requests = prepare_lora_requests(llm, base_info.get("loras", {}))
             for nick in _models_in_local_group(base_info):

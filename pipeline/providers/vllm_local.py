@@ -17,6 +17,7 @@ from vllm import LLM
 from vllm.lora.request import LoRARequest
 
 from pipeline.model_refs import is_hf_local_model, parse_hf_local_model
+from pipeline.providers.lora_config import required_lora_rank
 
 
 def group_models_for_vllm(
@@ -152,10 +153,12 @@ class VLLMEngineManager:
         base_model_id: str,
         enable_lora: bool = False,
         lora_count: int = 0,
+        lora_paths: Optional[Dict[str, str]] = None,
     ):
         self.base_model_id = base_model_id
         self.enable_lora = enable_lora
         self.lora_count = int(lora_count)
+        self.max_lora_rank = required_lora_rank(lora_paths or {}) if enable_lora else None
         self.llm: Optional[LLM] = None
 
     def __enter__(self) -> LLM:
@@ -169,7 +172,7 @@ class VLLMEngineManager:
         if self.enable_lora:
             engine_args.update({
                 "enable_lora": True,
-                "max_lora_rank": 64,
+                "max_lora_rank": self.max_lora_rank,
                 "max_loras": 1,
                 "max_cpu_loras": max(1, self.lora_count),
             })

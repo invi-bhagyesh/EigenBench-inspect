@@ -194,6 +194,7 @@ def _phase1_vllm(
             base_info["base_model_path"],
             enable_lora=has_loras,
             lora_count=len(base_info["loras"]),
+            lora_paths=base_info.get("loras", {}),
         ) as llm:
             lora_requests = prepare_lora_requests(llm, base_info["loras"] if has_loras else {})
             sampling_params = SamplingParams(max_tokens=max_tokens, temperature=0.7)
@@ -393,6 +394,7 @@ def _phase2_vllm_default(
             base_info["base_model_path"],
             enable_lora=has_loras,
             lora_count=len(base_info["loras"]),
+            lora_paths=base_info.get("loras", {}),
         ) as llm:
             lora_requests = prepare_lora_requests(llm, base_info["loras"] if has_loras else {})
             sampling_params = SamplingParams(max_tokens=max_tokens, temperature=0.7)
@@ -463,6 +465,7 @@ def _phase2_vllm_all_to_all(
             base_info["base_model_path"],
             enable_lora=has_loras,
             lora_count=len(base_info["loras"]),
+            lora_paths=base_info.get("loras", {}),
         ) as llm:
             lora_requests = prepare_lora_requests(llm, base_info["loras"] if has_loras else {})
             sampling_params = SamplingParams(max_tokens=max_tokens, temperature=0.7)
@@ -693,6 +696,7 @@ def _phase3_vllm(
             base_info["base_model_path"],
             enable_lora=has_loras,
             lora_count=len(base_info["loras"]),
+            lora_paths=base_info.get("loras", {}),
         ) as llm:
             lora_requests = prepare_lora_requests(llm, base_info["loras"] if has_loras else {})
             sampling_params = SamplingParams(max_tokens=max_tokens, temperature=0.7)
