@@ -94,12 +94,16 @@ class ResponsePool:
         return value
 
 
-def _cache_for_attempt(cache_enabled: bool, attempt: int) -> bool | CachePolicy:
+def _cache_for_attempt(cache_enabled: bool, attempt: int, model_identity: str) -> bool | CachePolicy:
     if not cache_enabled:
         return False
     # Never-expiring, attempt-scoped: reruns reuse valid outputs (checkpoint
     # semantics) while validation retries get a fresh key.
-    return CachePolicy(expiry=None, scopes={"attempt": str(attempt)})
+    return CachePolicy(expiry=None, scopes={
+        "attempt": str(attempt),
+        "eigenbench_cache_version": "2",
+        "model_identity": model_identity,
+    })
 
 
 async def generate_validated(
@@ -115,12 +119,15 @@ async def generate_validated(
     """Legacy retry contract: empty, truncated, filtered, or validator-rejected
     completions are retried up to ``max_attempts``."""
 
+    model_identity = getattr(model, "_eigenbench_cache_identity", None)
+    if cache_enabled and model_identity is None:
+        raise ValueError("Cached generation requires a model from the EigenBench resolver")
     last_error = "no attempts made"
     for attempt in range(1, max_attempts + 1):
         output = await model.generate(
             input=list(messages),
             config=config,
-            cache=_cache_for_attempt(cache_enabled, attempt),
+            cache=_cache_for_attempt(cache_enabled, attempt, model_identity or ""),
         )
         content = output.completion
         if not isinstance(content, str) or not content.strip():
@@ -138,10 +145,20 @@ async def generate_validated(
     )
 
 
-def phase_config(phase_cfg: dict) -> GenerateConfig:
+def phase_config(phase_cfg: dict, model: str | None = None) -> GenerateConfig:
+    """Generation settings for a phase, with any per-model override applied.
+
+    Context windows differ by an order of magnitude across a panel, so one
+    budget either truncates the verbose models or overruns the small ones.
+    """
+
+    cfg = dict(phase_cfg)
+    override = (phase_cfg.get("per_model") or {}).get(model or "")
+    if override:
+        cfg.update(override)
     return GenerateConfig(
-        max_tokens=int(phase_cfg["max_tokens"]),
-        temperature=float(phase_cfg["temperature"]),
+        max_tokens=int(cfg["max_tokens"]),
+        temperature=float(cfg["temperature"]),
     )
 
 
@@ -160,9 +177,6 @@ def direct_rating_solver(
     criteria_text = "\n".join(criteria)
     reflection_system = build_direct_reflection_prompt()
     rating_system = build_direct_rating_prompt()
-    response_config = phase_config(generation["response"])
-    reflection_config = phase_config(generation["reflection"])
-    rating_config = phase_config(generation["direct_rating"])
     validator = direct_rating_validator(len(criteria), scale_min, scale_max)
 
     async def solve(state: TaskState, generate: Generate) -> TaskState:
@@ -182,7 +196,7 @@ def direct_rating_solver(
             output = await generate_validated(
                 resolve_model(eval_nick),
                 response_messages,
-                config=response_config,
+                config=phase_config(generation["response"], eval_nick),
                 max_attempts=max_attempts,
                 cache_enabled=cache_enabled,
                 validator=None,
@@ -208,7 +222,7 @@ def direct_rating_solver(
         reflection_output = await generate_validated(
             judge,
             reflection_messages,
-            config=reflection_config,
+            config=phase_config(generation["reflection"], judge_nick),
             max_attempts=max_attempts,
             cache_enabled=cache_enabled,
             validator=None,
@@ -227,7 +241,7 @@ def direct_rating_solver(
         rating_output = await generate_validated(
             judge,
             rating_messages,
-            config=rating_config,
+            config=phase_config(generation["direct_rating"], judge_nick),
             max_attempts=max_attempts,
             cache_enabled=cache_enabled,
             validator=validator,
@@ -291,12 +305,11 @@ def response_only_solver(
 ) -> Solver:
     """Generate one evaluee response per sample, and nothing else."""
 
-    config = phase_config(generation_cfg)
-
     async def solve(state: TaskState, generate: Generate) -> TaskState:
         md = state.metadata
         s_idx = int(md["scenario_index"])
         eval_nick = md["eval_nick"]
+        config = phase_config(generation_cfg, eval_nick)
         messages = [
             ChatMessageSystem(content=RESPONSE_SYSTEM_MESSAGE),
             ChatMessageUser(content=md["scenario"]),
