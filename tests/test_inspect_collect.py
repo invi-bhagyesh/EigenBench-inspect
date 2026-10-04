@@ -304,13 +304,25 @@ def test_model_mapping():
 
 
 def test_local_models_start_vllm_like_the_native_engine(monkeypatch):
+    import inspect_pipeline.model_mapping as mapping
     from inspect_pipeline.model_mapping import VLLM_SERVER_DEFAULTS
 
     monkeypatch.delenv("EIGENBENCH_TENSOR_PARALLEL_SIZE", raising=False)
     monkeypatch.delenv("EIGENBENCH_VLLM_SERVER_ARGS", raising=False)
     native = Path(REPO_ROOT, "pipeline/providers/vllm_local.py").read_text()
-    for key, value in VLLM_SERVER_DEFAULTS.items():
+    for key in ("gpu_memory_utilization", "enforce_eager"):
+        value = VLLM_SERVER_DEFAULTS[key]
         assert f'"{key}": {value!r}' in native, f"native engine no longer uses {key}={value!r}"
+    assert '"max_model_len": resolve_max_model_len(' in native
+
+    # Both engines take the shorter of the default and the model's own window (no network here).
+    windows = {"allenai/OLMo-2-1124-7B": 4096}
+    lookups = []
+    def window(model_id, revision=None, requested=8192):
+        lookups.append((model_id, revision))
+        return min(requested, windows.get(model_id, requested))
+    monkeypatch.setattr(mapping, "resolve_max_model_len", window)
+    assert to_inspect_model("hf_local:allenai/OLMo-2-1124-7B").model_args["max_model_len"] == 4096
 
     ref = to_inspect_model({"provider": "hf_local", "repo_id": "Qwen/Qwen3.8-27B", "revision": "abc"})
     assert ref.model_args == {**VLLM_SERVER_DEFAULTS, "revision": "abc"}
@@ -319,10 +331,15 @@ def test_local_models_start_vllm_like_the_native_engine(monkeypatch):
     assert lora.model_args == {**VLLM_SERVER_DEFAULTS, "revision": "def"}
     assert to_inspect_model("anthropic/claude-sonnet-4").model_args == {}
 
+    # The LoRA's window is its base model's, at the base revision.
+    assert ("Qwen/Qwen2.5-7B-Instruct", "def") in lookups
+
     monkeypatch.setenv("EIGENBENCH_TENSOR_PARALLEL_SIZE", "2")
     monkeypatch.setenv("EIGENBENCH_VLLM_SERVER_ARGS", '{"max_model_len": 32768, "enforce_eager": null}')
+    lookups.clear()
     ref = to_inspect_model("hf_local:Qwen/Qwen2.5-7B-Instruct")
     assert ref.model_args == {"max_model_len": 32768, "gpu_memory_utilization": 0.9, "tensor_parallel_size": 2}
+    assert lookups == []  # an explicit max_model_len is used as given
 
     monkeypatch.setenv("EIGENBENCH_VLLM_SERVER_ARGS", "[1]")
     with pytest.raises(ValueError):
