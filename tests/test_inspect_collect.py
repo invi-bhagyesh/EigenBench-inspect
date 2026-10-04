@@ -303,6 +303,32 @@ def test_model_mapping():
         to_inspect_model("")
 
 
+def test_local_models_start_vllm_like_the_native_engine(monkeypatch):
+    from inspect_pipeline.model_mapping import VLLM_SERVER_DEFAULTS
+
+    monkeypatch.delenv("EIGENBENCH_TENSOR_PARALLEL_SIZE", raising=False)
+    monkeypatch.delenv("EIGENBENCH_VLLM_SERVER_ARGS", raising=False)
+    native = Path(REPO_ROOT, "pipeline/providers/vllm_local.py").read_text()
+    for key, value in VLLM_SERVER_DEFAULTS.items():
+        assert f'"{key}": {value!r}' in native, f"native engine no longer uses {key}={value!r}"
+
+    ref = to_inspect_model({"provider": "hf_local", "repo_id": "Qwen/Qwen3.8-27B", "revision": "abc"})
+    assert ref.model_args == {**VLLM_SERVER_DEFAULTS, "revision": "abc"}
+    lora = to_inspect_model({"provider": "hf_local", "kind": "lora", "repo_id": "org/adapter",
+                             "base_model_id": "Qwen/Qwen2.5-7B-Instruct", "base_revision": "def"})
+    assert lora.model_args == {**VLLM_SERVER_DEFAULTS, "revision": "def"}
+    assert to_inspect_model("anthropic/claude-sonnet-4").model_args == {}
+
+    monkeypatch.setenv("EIGENBENCH_TENSOR_PARALLEL_SIZE", "2")
+    monkeypatch.setenv("EIGENBENCH_VLLM_SERVER_ARGS", '{"max_model_len": 32768, "enforce_eager": null}')
+    ref = to_inspect_model("hf_local:Qwen/Qwen2.5-7B-Instruct")
+    assert ref.model_args == {"max_model_len": 32768, "gpu_memory_utilization": 0.9, "tensor_parallel_size": 2}
+
+    monkeypatch.setenv("EIGENBENCH_VLLM_SERVER_ARGS", "[1]")
+    with pytest.raises(ValueError):
+        to_inspect_model("hf_local:Qwen/Qwen2.5-7B-Instruct")
+
+
 def test_phased_matches_single_task(run_dir):
     """A phased run must produce exactly the records an edge-per-sample run does.
 
