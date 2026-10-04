@@ -303,6 +303,76 @@ def test_model_mapping():
         to_inspect_model("")
 
 
+def test_default_spec_builds_without_arguments(monkeypatch):
+    """`inspect eval inspect_pipeline/eigenbench.py` needs no -T spec."""
+    import pipeline.config.airisk as airisk
+    from inspect_pipeline.eigenbench import DEFAULT_SPEC, _run_context, eigenbench
+
+    scenarios = [f"Dilemma {i}" for i in range(150)]
+    monkeypatch.setattr(airisk, "load_airisk_scenarios", lambda: scenarios)
+    ctx = _run_context(DEFAULT_SPEC, None)
+    models = ctx["models"]
+    assert len(models) == 4 and all(isinstance(ref, str) for ref in models.values())
+    assert [scenario for _, scenario in ctx["selected"]] == scenarios[:100]
+    assert len(ctx["criteria"]) == 8 and ctx["include_self"]
+
+    task = eigenbench()
+    # all_to_all with self-ratings: every judge rates every evaluee on every scenario
+    assert len(task.dataset) == 100 * len(models) ** 2
+
+    import contextvars
+    from inspect_ai.model import get_model
+    from inspect_ai.model._model import init_active_model
+    from inspect_pipeline.eigenbench import with_eval_model
+
+    def panel_with(model_name):
+        def run():
+            init_active_model(get_model(model_name), None)
+            return with_eval_model(DEFAULT_SPEC, None)
+        return contextvars.copy_context().run(run)
+
+    assert panel_with("none") is None  # inspect eval without --model: the spec's panel
+    assert panel_with("openrouter/openai/gpt-4.1-nano") == models  # already in the panel
+    assert list(panel_with("mockllm/model")) == [*models, "mockllm/model"]
+
+
+def test_eval_model_joins_the_panel(run_dir):
+    """`inspect eval ... --model X` rates X with the spec's panel, and X judges it."""
+    from inspect_ai import eval as inspect_eval
+    from inspect_ai.model import ModelOutput, get_model
+    from inspect_pipeline.export import records_from_log
+
+    tmp_path, write_spec = run_dir
+    spec_path = write_spec(sampler_mode="all_to_all")
+    calls = {"n": 0}
+
+    def outputs(input, tools, tool_choice, config):
+        system = input[0].text
+        if system.startswith("Without making any mention"):
+            calls["n"] += 1
+            content = f"[delta#{calls['n']}] answers"
+        elif system.startswith("You are acting as a judge. Carefully consider the following response"):
+            content = "[delta] reflection"
+        else:
+            content = "\n".join(f"<criterion_{i}_rating>7</criterion_{i}_rating>" for i in range(1, NUM_CRITERIA + 1))
+        return ModelOutput.from_content(model="mockllm/model", content=content)
+
+    under_test = get_model("mockllm/model", custom_outputs=outputs, memoize=False)
+    task = f"{REPO_ROOT}/inspect_pipeline/eigenbench.py@eigenbench"
+    log = inspect_eval(task, task_args={"spec": str(spec_path), "cache": False}, model=under_test,
+                       display="none", log_dir=str(tmp_path / "logs"))[0]
+    assert log.status == "success"
+    records = records_from_log(log)
+    panel = set(NICKS) | {"mockllm/model"}
+    assert {r["judge"]["name"] for r in records} == {r["evaluee"]["name"] for r in records} == panel
+    assert len(records) == SCENARIO_COUNT * len(panel) ** 2
+
+    # Without --model the panel is the spec's alone.
+    log = inspect_eval(task, task_args={"spec": str(spec_path), "cache": False},
+                       display="none", log_dir=str(tmp_path / "logs"))[0]
+    assert {r["judge"]["name"] for r in records_from_log(log)} == set(NICKS)
+
+
 def test_phased_matches_single_task(run_dir):
     """A phased run must produce exactly the records an edge-per-sample run does.
 

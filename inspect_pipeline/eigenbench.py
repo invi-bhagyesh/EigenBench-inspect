@@ -1,6 +1,7 @@
 """EigenBench direct rating as a native Inspect AI task.
 
     inspect eval inspect_pipeline/eigenbench.py -T spec=runs/my_run/spec.py
+    inspect eval inspect_pipeline/eigenbench.py   # runs/default/spec.py
 
 One sample per directed judge->evaluee edge. The sampling plan, prompts, and
 rating validation come from ``pipeline.eval.direct_rating``; export the
@@ -24,7 +25,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 from inspect_ai import Task, task
 from inspect_ai.dataset import MemoryDataset, Sample
-from inspect_ai.model import Model, get_model
+from inspect_ai.model import Model, ModelName, get_model
 from inspect_ai.viewer import (
     TaskSamplesColumn,
     TaskSamplesSort,
@@ -56,6 +57,8 @@ from inspect_pipeline.phases import (
 )
 
 DEFAULT_MAX_ATTEMPTS = 4
+# What `inspect eval inspect_pipeline/eigenbench.py` runs without -T spec.
+DEFAULT_SPEC = "runs/default/spec.py"
 
 
 def resolve_spec_ref(spec: str) -> str:
@@ -312,9 +315,43 @@ def sanitize(nick: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", nick).strip("_") or "model"
 
 
+def _eval_model() -> Model | None:
+    """The model given to ``inspect eval --model`` (or ``eval(model=...)``), if any.
+
+    Inspect makes it the active model before creating the task. A task built outside an eval
+    (``scripts/run_inspect.py``) has none, and an eval without ``--model`` runs ``none/none``.
+    """
+
+    from inspect_ai.model._model import active_model
+
+    model = active_model()
+    if model is None or str(ModelName(model)) == "none/none":
+        return None
+    return model
+
+
+def with_eval_model(spec: str, models: dict[str, object] | None) -> dict[str, object] | None:
+    """Add the ``--model`` model to the panel as one more evaluee and judge.
+
+    EigenBench ranks a panel against itself, so ``--model`` cannot replace it; it joins it,
+    named by its Inspect model name. A model the panel already has is not added twice.
+    """
+
+    model = _eval_model()
+    if model is None:
+        return models
+    panel = dict(models if models is not None else load_run_spec(resolve_spec_ref(spec))[0]["models"])
+    name = str(ModelName(model))
+    for value in panel.values():
+        if value is model or (not isinstance(value, Model) and to_inspect_model(value).name == name):
+            return panel
+    nick = name if name not in panel else f"{name} (--model)"
+    return {**panel, nick: model}
+
+
 @task
 def eigenbench(
-    spec: str,
+    spec: str = DEFAULT_SPEC,
     *,
     models: dict[str, object] | None = None,
     cache: bool | None = None,
@@ -322,12 +359,17 @@ def eigenbench(
     """Direct-rating EigenBench, one sample per directed judge->evaluee edge.
 
     Args:
-        spec: run spec module or path, e.g. ``runs/my_run/spec.py``.
+        spec: run spec module or path, e.g. ``runs/my_run/spec.py``. Defaults to
+            ``runs/default/spec.py``: four inexpensive models, 100 AIRiskDilemmas
+            scenarios and the kindness constitution.
         models: optional override of the spec's models (Python callers only).
         cache: override ``collection.inspect.cache``.
+
+    ``--model`` joins the spec's panel as one more evaluee and judge; without it the panel
+    is the spec's models alone.
     """
 
-    ctx = _run_context(spec, models, cache)
+    ctx = _run_context(spec, with_eval_model(spec, models), cache)
     if not ctx["is_direct"]:
         raise ValueError(
             "inspect_pipeline.eigenbench supports evaluation.mode='direct_rating' "

@@ -36,6 +36,14 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt inspect-ai
 ```
 
+Or with [uv](https://docs.astral.sh/uv/), from `pyproject.toml`. Add the `local`
+extra for vLLM, which local Hugging Face models and adapters need (Linux only):
+
+```bash
+uv sync                # hosted models
+uv sync --extra local  # also local models through vLLM
+```
+
 Set credentials for the providers you use. For example:
 
 ```bash

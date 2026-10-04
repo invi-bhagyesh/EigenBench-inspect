@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "eigenbench"
+version = "0.1.0"
+description = "EigenBench: a comparative behavioral measure of value alignment"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+# The same set as requirements.txt, except vLLM, which is only imported to serve local models
+# and does not install on macOS or machines without CUDA: it is the `local` extra.
+dependencies = [
+    "inspect-ai>=0.3.268",
+    "torch",
+    "numpy",
+    "scikit-learn",
+    "matplotlib",
+    "tqdm",
+    "python-dotenv",
+    "openai",
+    "scipy",
+    "pandas",
+    "anthropic",
+    "google-genai",
+    "accelerate",
+    "transformers",
+    "datasets",
+    "huggingface_hub",
+    "gradio_client",
+]
+
+[project.optional-dependencies]
+# Local Hugging Face models and LoRA adapters (hf_local: references), served with vLLM,
+# which publishes Linux wheels only.
+local = ["vllm; sys_platform == 'linux'"]
+
+[project.urls]
+Paper = "https://arxiv.org/abs/2509.01938"
+Repository = "https://github.com/jchang153/eigenbench"
+
+[tool.setuptools.packages.find]
+include = ["pipeline*", "inspect_pipeline*", "scripts*"]
