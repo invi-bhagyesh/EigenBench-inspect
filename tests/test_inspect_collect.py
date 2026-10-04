@@ -303,6 +303,24 @@ def test_model_mapping():
         to_inspect_model("")
 
 
+def test_default_spec_builds_without_arguments(monkeypatch):
+    """`inspect eval inspect_pipeline/eigenbench.py` needs no -T spec."""
+    import pipeline.config.airisk as airisk
+    from inspect_pipeline.eigenbench import DEFAULT_SPEC, _run_context, eigenbench
+
+    scenarios = [f"Dilemma {i}" for i in range(150)]
+    monkeypatch.setattr(airisk, "load_airisk_scenarios", lambda: scenarios)
+    ctx = _run_context(DEFAULT_SPEC, None)
+    models = ctx["models"]
+    assert len(models) == 4 and all(isinstance(ref, str) for ref in models.values())
+    assert [scenario for _, scenario in ctx["selected"]] == scenarios[:100]
+    assert len(ctx["criteria"]) == 8 and ctx["include_self"]
+
+    task = eigenbench()
+    # all_to_all with self-ratings: every judge rates every evaluee on every scenario
+    assert len(task.dataset) == 100 * len(models) ** 2
+
+
 def test_phased_matches_single_task(run_dir):
     """A phased run must produce exactly the records an edge-per-sample run does.
 

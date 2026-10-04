@@ -1,6 +1,7 @@
 """EigenBench direct rating as a native Inspect AI task.
 
     inspect eval inspect_pipeline/eigenbench.py -T spec=runs/my_run/spec.py
+    inspect eval inspect_pipeline/eigenbench.py   # runs/default/spec.py
 
 One sample per directed judge->evaluee edge. The sampling plan, prompts, and
 rating validation come from ``pipeline.eval.direct_rating``; export the
@@ -56,6 +57,8 @@ from inspect_pipeline.phases import (
 )
 
 DEFAULT_MAX_ATTEMPTS = 4
+# What `inspect eval inspect_pipeline/eigenbench.py` runs without -T spec.
+DEFAULT_SPEC = "runs/default/spec.py"
 
 
 def resolve_spec_ref(spec: str) -> str:
@@ -314,7 +317,7 @@ def sanitize(nick: str) -> str:
 
 @task
 def eigenbench(
-    spec: str,
+    spec: str = DEFAULT_SPEC,
     *,
     models: dict[str, object] | None = None,
     cache: bool | None = None,
@@ -322,7 +325,9 @@ def eigenbench(
     """Direct-rating EigenBench, one sample per directed judge->evaluee edge.
 
     Args:
-        spec: run spec module or path, e.g. ``runs/my_run/spec.py``.
+        spec: run spec module or path, e.g. ``runs/my_run/spec.py``. Defaults to
+            ``runs/default/spec.py``: four inexpensive models, 100 AIRiskDilemmas
+            scenarios and the kindness constitution.
         models: optional override of the spec's models (Python callers only).
         cache: override ``collection.inspect.cache``.
     """
