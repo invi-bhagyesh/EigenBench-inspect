@@ -1,6 +1,7 @@
 """Default direct-rating run: what `inspect eval inspect_pipeline/eigenbench.py` runs without -T spec.
 
     inspect eval inspect_pipeline/eigenbench.py@eigenbench
+    inspect eval inspect_pipeline/eigenbench.py@eigenbench --model openai/gpt-5-nano
 
 Four inexpensive models from different labs rate each other's responses to the first 100
 AIRiskDilemmas scenarios (pinned dataset revision) against the 8-criterion kindness
@@ -8,7 +9,9 @@ constitution, every judge rating every response including its own: 400 responses
 judgments through OpenRouter (OPENROUTER_API_KEY). Non-reasoning models are used so the
 512-token rating budget is not spent on reasoning.
 
-Point -T spec at your own spec to change the panel, scenarios or constitution.
+`--model` adds the model under test as a fifth panel member that rates, and is rated by, the
+others: 25 judgments per scenario, 2,500 in total. Point -T spec at your own spec to change the
+panel, scenarios or constitution.
 """
 
 RUN_SPEC = {
