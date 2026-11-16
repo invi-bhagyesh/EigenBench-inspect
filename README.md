@@ -1,5 +1,7 @@
 # EigenBench: A Comparative Behavioral Measure of Value Alignment
 
+[![arXiv](https://img.shields.io/badge/arXiv-2509.01938-b31b1b?style=flat-square)](https://arxiv.org/abs/2509.01938)
+
 **The official repository for [EigenBench: A Comparative Behavioral Measure of Value Alignment](https://arxiv.org/abs/2509.01938).**
 
 EigenBench is a black-box framework for quantifying value alignment across language models without relying on ground-truth labels. Given a model ensemble, a constitution describing a value system, and a scenario dataset, models judge each other’s responses. Runs can use the original pairwise Bradley-Terry-Davidson (BTD) framework or direct criterion-wise ratings; both routes produce a row-stochastic trust matrix that is aggregated with EigenTrust.
